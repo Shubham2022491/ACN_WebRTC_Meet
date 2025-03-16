@@ -37,6 +37,7 @@ import { useState } from "react";
 import { BrowserRouter as Router, Routes, Route, useNavigate } from "react-router-dom";
 import Home from "./Home";
 import MeetingRoom from "./MeetingRoom";
+import App_ from "./fun";
 
 
 export default function App() {
@@ -44,7 +45,7 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/meet" element={<MeetingRoom />} />
+        <Route path="/meet" element={<App_ />} />
       </Routes>
     </Router>
   );
