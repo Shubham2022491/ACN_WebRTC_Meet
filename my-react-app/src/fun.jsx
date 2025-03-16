@@ -71,7 +71,7 @@ function App_() {
 
     socket.on("getAnswer", (sdp) => {
       alert("get answer:" + sdp);
-      peerConnection.setRemoteDescription(sdp);
+      pc.setRemoteDescription(sdp);
     });
     
     
