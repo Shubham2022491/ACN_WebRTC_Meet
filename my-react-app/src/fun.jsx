@@ -8,27 +8,14 @@ const ICE_SERVERS = {
 const socket = io("http://localhost:4000");
 
 function App_() {
+
+
   useEffect(() => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-    // Add media tracks
-    // navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
-    //   stream.getTracks().forEach(track => pc.addTrack(track, stream));
-    // });
-
-    // // Gather ICE candidates
-    // pc.onicecandidate = (event) => {
-    //   if (event.candidate) {
-    //       // Send candidate to the remote peer
-    //       sendCandidateToRemote(event.candidate);
-    //   }
-    // };
-
-    socket.emit("join", { room: "1234", name: "John Doe" });
-
 
     const createOffer = () => {
-      alert("create offer");
+      // alert("create offer");
       pc
           .createOffer({offerToReceiveAudio: true, offerToReceiveVideo: true})
           .then(sdp => {
@@ -41,7 +28,7 @@ function App_() {
     };
 
     socket.on("room_users", async users => {
-      alert(JSON.stringify(users, null, 2));   
+      // alert(JSON.stringify(users, null, 2));   
       createOffer()   
     });
 
@@ -65,17 +52,78 @@ function App_() {
     };
 
     socket.on("getOffer", async sdp => {
-      alert("get offer:" + sdp);
+      // alert("got an offer:" + sdp);
       createAnswer(sdp);
     });
 
     socket.on("getAnswer", (sdp) => {
-      alert("get answer:" + sdp);
-      pc.setRemoteDescription(sdp);
+      console.log("Received SDP answer:", sdp);
+    
+      // Set the remote description with the received SDP answer
+      pc.setRemoteDescription(sdp)
+        .then(() => {
+          console.log("Successfully set remote description.");
+        })
+        .catch((error) => {
+          console.error("Error setting remote description:", error);
+        });
     });
     
+    pc.onicecandidate = e => {
+      if (e.candidate) {
+          alert("onicecandidate");
+          socket.emit("candidate", e.candidate);
+      }
+    };
+    pc.oniceconnectionstatechange = e => {
+      alert(e);
+    };
     
+    socket.on("getCandidate", (candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).then(() => {
+            alert("candidate add success");
+        });
+    });
 
+    try {
+      navigator.mediaDevices
+          .getUserMedia({
+              video: true,
+              audio: true,
+          })
+          .then(stream => {
+              if (localVideo.current) localVideo.current.srcObject = stream;
+
+              stream.getTracks().forEach(track => {
+                  pc.addTrack(track, stream);
+              });
+              pc.onicecandidate = e => {
+                  if (e.candidate) {
+                      console.log("onicecandidate");
+                      socket.emit("candidate", e.candidate);
+                  }
+              };
+              pc.oniceconnectionstatechange = e => {
+                  console.log(e);
+              };
+
+              pc.ontrack = ev => {
+                  console.log("add remotetrack success");
+                  if (remoteVideo.current)
+                      remoteVideo.current.srcObject = ev.streams[0];
+              };
+
+              socket.emit("join", {
+                  room: "1234",
+                  name: "John Doe",
+              });
+          })
+          .catch(error => {
+              alert(`getUserMedia error: ${error}`);
+          });
+    }catch (e) {
+      alert(e);
+    }
 
 
     return () => {
