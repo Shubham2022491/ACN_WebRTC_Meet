@@ -1,4 +1,4 @@
-import { useEffect,useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 const ICE_SERVERS = {
@@ -10,50 +10,65 @@ const socket = io("http://localhost:4000");
 function App_() {
   const localVideo = useRef(null);
   const remoteVideo = useRef(null);
+  const [users, setUsers] = useState([]); // State to store users
 
   useEffect(() => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
-
-    const createOffer = async () => {
+    const createOffer = async (userSocketId) => {
       try {
         const sdp = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(sdp);
-        socket.emit("offer", sdp);
+        socket.emit("offer", { sdp, target: userSocketId });
       } catch (error) {
         console.error("Error creating offer:", error);
       }
     };
-
-    socket.on("room_users", async users => {
-      // alert(JSON.stringify(users, null, 2));   
-      createOffer()   
+    
+    // Receive and store room users
+    socket.on("room_users", async (users) => {
+      setUsers(users);
+      console.log("Users in room:", users);
+      for (let user of users) {
+        if (user.id !== socket.id) {
+          await createOffer(user.id); // Ensure each offer is created sequentially
+        }
+      }
     });
 
 
-    const createAnswer = async (sdp) => {
+
+
+    const createAnswer = async (sdp, sender) => {
       try {
         await pc.setRemoteDescription(sdp);
         const answerSdp = await pc.createAnswer({
-                        offerToReceiveVideo: true,
-                        offerToReceiveAudio: true,
-                    });
+          offerToReceiveVideo: true,
+          offerToReceiveAudio: true,
+        });
         await pc.setLocalDescription(answerSdp);
-        socket.emit("answer", answerSdp);
+        
+        // Send the answer back to the sender
+        // alert(sender)
+        socket.emit("answer", { sdp: answerSdp, target: sender });
+        console.log(`Answer sent to ${sender}`);
       } catch (error) {
         console.error("Error creating answer:", error);
       }
     };
 
-    socket.on("getOffer", async sdp => {
-      // alert("got an offer:" + sdp);
-      createAnswer(sdp);
+    socket.on("getOffer", async ({ sdp, sender }) => {
+      // alert("Received offer from:", sender);
+      await createAnswer(sdp, sender);
     });
 
-    socket.on("getAnswer", async (sdp) => {
+
+    socket.on("getAnswer", async ({ sdp, sender })  => {
       if (pc.signalingState !== "closed") {
         try {
           await pc.setRemoteDescription(sdp);
+          // alert("got answer from ")
+          // alert(sender)
           console.log("Successfully set remote description.");
         } catch (error) {
           console.error("Error setting remote description:", error);
@@ -63,7 +78,7 @@ function App_() {
     
     pc.onicecandidate = e => {
       if (e.candidate) {
-          alert("onicecandidate");
+          // alert("onicecandidate");
           socket.emit("candidate", e.candidate);
       }
     };
@@ -111,6 +126,12 @@ function App_() {
       <h1>WebRTC Meet</h1>
       <video ref={localVideo} autoPlay playsInline></video>
       <video ref={remoteVideo} autoPlay playsInline></video>
+      <h2>Users in Room</h2>
+      <ul>
+        {users.map((user, index) => (
+          <li key={index}>{user.name} ({user.socketId})</li>
+        ))}
+      </ul>
     </div>
   );
 }

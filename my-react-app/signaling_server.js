@@ -46,25 +46,32 @@ io.on("connection", socket => {
         console.log("[joined] room:" + data.room + " name: " + data.name);
     });
 
-    // Handle WebRTC signaling messages within the room
-    socket.on("offer", sdp => {
-        // console.log("Received Offer SDP:\n", sdp);
+
+    socket.on("offer", ({ sdp, target }) => {
+        console.log("Received Offer SDP from:", socket.id);
         const roomId = socketToRoom[socket.id];
         if (roomId) {
-            socket.to(roomId).emit("getOffer", sdp);
-            console.log(`[offer] ${socket.id} -> room ${roomId}`);
+            if (target && io.sockets.sockets.has(target)) {
+                // Send the offer directly to the target user
+                socket.to(target).emit("getOffer", { sdp, sender: socket.id });
+                console.log(`[offer] ${socket.id} -> ${target}`);
+                
+            } else {
+                console.error("Target socket not found or invalid");
+            }
         }
     });
 
-    socket.on("answer", sdp => {
-        const roomId = socketToRoom[socket.id];
-        if (roomId) {
-            socket.to(roomId).emit("getAnswer", sdp);
-            console.log(`[answer] ${socket.id} -> room ${roomId}`);
+    socket.on("answer", ({ sdp, target }) => {
+        console.log("Received Answer SDP from:", socket.id);
+        if (target && io.sockets.sockets.has(target)) {
+          // Send the answer directly to the target user
+          socket.to(target).emit("getAnswer", {sdp, sender: socket.id});
+          console.log(`[answer] ${socket.id} -> ${target}`);
+        } else {
+          console.error("Target socket not found or invalid");
         }
-        // socket.broadcast.emit("getAnswer", sdp);
-        // console.log("answer: " + socket.id);
-    });
+      });
 
     socket.on("candidate", candidate => {
         const roomId = socketToRoom[socket.id];
