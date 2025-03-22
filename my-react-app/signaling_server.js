@@ -28,6 +28,7 @@ let socketToRoom = {};
 
 io.on("connection", socket => {
     socket.on("join", data => {
+        // console.log("hi");
         // let a new user join to the room
         const roomId = data.room
         socket.join(roomId);
@@ -71,17 +72,24 @@ io.on("connection", socket => {
         } else {
           console.error("Target socket not found or invalid");
         }
-      });
-
-    socket.on("candidate", candidate => {
-        const roomId = socketToRoom[socket.id];
-        if (roomId){
-            socket.to(roomId).emit("getCandidate", candidate);
-            console.log(`[candidate] ${socket.id} -> room ${roomId}`);
-        }
-        // socket.broadcast.emit("getCandidate", candidate);
-        // console.log("candidate: " + socket.id);
     });
+
+
+    socket.on("candidate", ({ candidate, target }) => {
+        const roomId = socketToRoom[socket.id];
+        if (roomId) {
+          if (target && io.sockets.sockets.has(target)) {
+            // Forward the ICE candidate to the target user
+            socket.to(target).emit("getCandidate", { candidate, sender: socket.id });
+            // console.log(`[candidate] ${socket.id} -> ${target}`);
+          } else {
+            console.error("Invalid or missing target for candidate:", target);
+          }
+        } else {
+          console.error("Socket not associated with a room:", socket.id);
+        }
+    });
+   
 
     socket.on("disconnect", () => {
         const roomId = socketToRoom[socket.id];

@@ -5,18 +5,48 @@ const ICE_SERVERS = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-const socket = io("http://localhost:4000");
+
+// const socket = io("http://localhost:4000");
 
 function App_() {
   const localVideo = useRef(null);
   const remoteVideo = useRef(null);
   const [users, setUsers] = useState([]); // State to store users
+  const peerConnections = {};
+  // const socketListeners = useRef(false); // Track if listeners are registered
 
   useEffect(() => {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    // if (socketListeners.current) {
+    //   alert("Listeners already registered. Skipping.");
+    //   return;
+    // }
+    // socketListeners.current = true;
+    const socket = io("http://localhost:4000");
+   
+    const createPeerConnection = (userSocketId) => {
+      if (peerConnections[userSocketId]) {
+        alert(`PeerConnection already exists for ${userSocketId}`);
+        return peerConnections[userSocketId];
+      }
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit("candidate", { candidate: e.candidate, target: userSocketId });
+        }
+      };
+
+      pc.ontrack = (ev) => {
+        if (remoteVideo.current) remoteVideo.current.srcObject = ev.streams[0];
+      };
+
+      peerConnections[userSocketId] = pc;
+      return pc;
+    };
 
     const createOffer = async (userSocketId) => {
       try {
+        const pc = createPeerConnection(userSocketId);
         const sdp = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(sdp);
         socket.emit("offer", { sdp, target: userSocketId });
@@ -36,11 +66,9 @@ function App_() {
       }
     });
 
-
-
-
     const createAnswer = async (sdp, sender) => {
       try {
+        const pc = createPeerConnection(sender);
         await pc.setRemoteDescription(sdp);
         const answerSdp = await pc.createAnswer({
           offerToReceiveVideo: true,
@@ -63,61 +91,64 @@ function App_() {
     });
 
 
-    socket.on("getAnswer", async ({ sdp, sender })  => {
-      if (pc.signalingState !== "closed") {
+
+
+    socket.on("getAnswer", async ({ sdp, sender }) => {
+      const pc = peerConnections[sender];
+      if (pc && pc.signalingState !== "closed") {
         try {
           await pc.setRemoteDescription(sdp);
-          // alert("got answer from ")
-          // alert(sender)
           console.log("Successfully set remote description.");
         } catch (error) {
           console.error("Error setting remote description:", error);
         }
       }
+      alert(JSON.stringify(peerConnections, null, 2));
     });
     
-    pc.onicecandidate = e => {
-      if (e.candidate) {
-          // alert("onicecandidate");
-          socket.emit("candidate", e.candidate);
-      }
-    };
-    pc.oniceconnectionstatechange = e => {
-      alert(e);
-    };
     
-
-    socket.on("getCandidate", async (candidate) => {
-      if (pc.remoteDescription) {
+    socket.on("getCandidate", async ({ candidate, sender }) => {
+      const pc = peerConnections[sender];
+      if (pc && pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+        console.error("Peer connection not found for candidate");
       }
     });
-
+    
     navigator.mediaDevices
     .getUserMedia({ video: true, audio: true })
     .then((stream) => {
+      // Display the local stream in the local video element
       if (localVideo.current) localVideo.current.srcObject = stream;
 
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
+      // Add tracks to all existing peer connections
+      Object.values(peerConnections).forEach((pc) => {
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream);
+        });
       });
-
-      pc.ontrack = (ev) => {
-        if (remoteVideo.current) remoteVideo.current.srcObject = ev.streams[0];
-      };
-
-      socket.emit("join", { room: "1234", name: "John Doe" });
     })
     .catch((error) => {
       console.error("getUserMedia error:", error);
     });
+    // alert("hi")
+    socket.emit("join", { room: "1234", name: "John Doe" });
+    // alert("joined")
 
 
     return () => {
-      pc.ontrack = null;
-      pc.onicecandidate = null;
-      pc.oniceconnectionstatechange = null;
-      pc.close();
+      Object.values(peerConnections).forEach((pc) => {
+        if (pc) {
+          pc.ontrack = null;
+          pc.onicecandidate = null;
+          pc.oniceconnectionstatechange = null;
+          pc.close();
+        }
+      });
+      socket.disconnect();
+      // Optionally clear the peerConnections object
+      Object.keys(peerConnections).forEach((key) => delete peerConnections[key]);
     };
   }, []);
 
