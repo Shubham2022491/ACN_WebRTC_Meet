@@ -466,6 +466,10 @@ function App() {
 
     const handleOffer = async ({ sdp, sender }) => {
       console.log(`Received offer from ${sender}`);
+      // make a rquest for media state
+      // alert("requesting media");
+      socketRef.current.emit("media_state_request", { target: sender });
+      
       await createAnswer(sdp, sender);
     };
 
@@ -542,6 +546,7 @@ function App() {
       // Request current media states from all existing users
       roomUsers.forEach(user => {
         if (user.id !== socketRef.current.id) {
+          // alert("requesting media");
           socketRef.current.emit("media_state_request", { target: user.id });
         }
       });
@@ -556,10 +561,11 @@ function App() {
     };
 
     // Add new socket event listeners for media state changes
-    socketRef.current.on("media_state_change", ({ userId, audio, video }) => {
+    socketRef.current.on("media_state_change", ({ sender, audio, video }) => {
+      alert("Got media from: "+sender);
       setUserMediaState(prev => ({
         ...prev,
-        [userId]: { audio, video }
+        [sender]: { audio, video }
       }));
     });
 
@@ -625,11 +631,14 @@ function App() {
   useEffect(() => {
     if (!socketRef.current) return;
 
-    socketRef.current.on("media_state_request", ({ sender }) => {
+    socketRef.current.on("media_state_request", ({ requesterid }) => {
       // Send current media state to the requester
       const currentState = userMediaState[socketRef.current.id] || { audio: true, video: true };
+      // alert("sending media state to: "+sender);
+      // alert("my id: "+socketRef.current.id);
       socketRef.current.emit("media_state_change", {
-        userId: socketRef.current.id,
+        userId: requesterid,
+        senderid: socketRef.current.id,
         audio: currentState.audio,
         video: currentState.video
       });
@@ -718,6 +727,8 @@ function App() {
 
         // Emit the state change to other users
         socketRef.current?.emit("media_state_change", {
+          userId: "send_to_all",
+          senderid: socketRef.current.id,
           audio: type === 'audio' ? newState : (userMediaState[socketRef.current.id]?.audio ?? true),
           video: type === 'video' ? newState : (userMediaState[socketRef.current.id]?.video ?? true)
         });
