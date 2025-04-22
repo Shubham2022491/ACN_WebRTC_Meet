@@ -1,6 +1,7 @@
 import React from 'react'
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import { sendSpeechText, getUserMessages, getAllMessages, formatTimestamp } from './speechApi';
 
 const ICE_SERVERS = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -69,6 +70,10 @@ function App() {
   const chatContainerRef = useRef(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const iceCandidateQueueRef = useRef({});
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const silenceTimerRef = useRef(null);
+  const finalTranscriptRef = useRef('');
 
   const styles = {
     container: {
@@ -319,6 +324,59 @@ function App() {
     // Initialize socket connection
     socketRef.current = io("http://localhost:4000");
     
+    // Initialize speech recognition
+    if ('webkitSpeechRecognition' in window) {
+      const recognition = new window.webkitSpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+        setIsListening(true);
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended');
+        setIsListening(false);
+        // If we have a final transcript, send it
+        if (finalTranscriptRef.current.trim()) {
+          handleSpeechEnd();
+        }
+      };
+
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        finalTranscriptRef.current = finalTranscript;
+
+        // Reset silence timer on new speech
+        if (interimTranscript || finalTranscript) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (finalTranscriptRef.current.trim()) {
+              handleSpeechEnd();
+            }
+          }, 2000); // 2 seconds of silence
+        }
+      };
+
+      recognitionRef.current = recognition;
+      
+      // Start speech recognition immediately since audio is enabled by default
+      recognition.start();
+    }
+
     const createPeerConnection = (userSocketId) => {
       // Check if connection already exists
       if (peerConnectionsRef.current[userSocketId]) {
@@ -619,6 +677,12 @@ function App() {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
       
+      // Stop speech recognition
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      clearTimeout(silenceTimerRef.current);
+      
       // Disconnect socket
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -732,6 +796,22 @@ function App() {
           audio: type === 'audio' ? newState : (userMediaState[socketRef.current.id]?.audio ?? true),
           video: type === 'video' ? newState : (userMediaState[socketRef.current.id]?.video ?? true)
         });
+
+        // Handle speech recognition when audio is toggled
+        if (type === 'audio') {
+          if (newState) {
+            // Start speech recognition when audio is enabled
+            if (recognitionRef.current) {
+              finalTranscriptRef.current = '';
+              recognitionRef.current.start();
+            }
+          } else {
+            // Stop speech recognition when audio is disabled
+            if (recognitionRef.current) {
+              recognitionRef.current.stop();
+            }
+          }
+        }
       }
     });
   };
@@ -790,6 +870,52 @@ function App() {
       sendMessage();
     }
   };
+
+  const handleSpeechEnd = async () => {
+    if (finalTranscriptRef.current.trim()) {
+      try {
+        await sendSpeechText(socketRef.current?.id, finalTranscriptRef.current);
+        finalTranscriptRef.current = '';
+      } catch (error) {
+        console.error('Error sending speech text:', error);
+      }
+    }
+  };
+
+  const toggleSpeechRecognition = () => {
+    if (!recognitionRef.current) return;
+
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      finalTranscriptRef.current = '';
+      recognitionRef.current.start();
+    }
+  };
+
+  // Add speech recognition button to controls
+  const renderControls = () => (
+    <div style={styles.controlsBar}>
+      <button
+        onClick={() => toggleMedia('audio')}
+        style={{
+          ...styles.controlButton,
+          ...(userMediaState[socketRef.current?.id]?.audio === false && styles.controlButtonOff)
+        }}
+      >
+        {userMediaState[socketRef.current?.id]?.audio ? Icons.micOn : Icons.micOff}
+      </button>
+      <button
+        onClick={() => toggleMedia('video')}
+        style={{
+          ...styles.controlButton,
+          ...(userMediaState[socketRef.current?.id]?.video === false && styles.controlButtonOff)
+        }}
+      >
+        {userMediaState[socketRef.current?.id]?.video ? Icons.videoOn : Icons.videoOff}
+      </button>
+    </div>
+  );
 
   return (
     <div style={styles.container}>
@@ -886,26 +1012,7 @@ function App() {
       </div>
 
       {/* Controls Bar */}
-      <div style={styles.controlsBar}>
-        <button
-          onClick={() => toggleMedia('audio')}
-          style={{
-            ...styles.controlButton,
-            ...(userMediaState[socketRef.current?.id]?.audio === false && styles.controlButtonOff)
-          }}
-        >
-          {userMediaState[socketRef.current?.id]?.audio ? Icons.micOn : Icons.micOff}
-        </button>
-        <button
-          onClick={() => toggleMedia('video')}
-          style={{
-            ...styles.controlButton,
-            ...(userMediaState[socketRef.current?.id]?.video === false && styles.controlButtonOff)
-          }}
-        >
-          {userMediaState[socketRef.current?.id]?.video ? Icons.videoOn : Icons.videoOff}
-        </button>
-      </div>
+      {renderControls()}
 
       {/* Chat Button with Notification */}
       <div style={styles.chatButtonContainer}>

@@ -107,19 +107,23 @@ io.on("connection", socket => {
         delete socketToRoom[socket.id];
     });
 
-    socket.on("media_state_change", ({ userId, audio, video }) => {
+    socket.on("media_state_change", ({ userId, senderid, audio, video }) => {
         const roomId = socketToRoom[socket.id];
+        
         if (roomId) {
             // Update the user's media state in the rooms object
-            const user = rooms[roomId]?.find(u => u.id === userId);
-            if (user) {
-                user.audio = audio;
-                user.video = video;
+            if (userId != "send_to_all"){
+                const user = rooms[roomId]?.find(u => u.id === userId);
+                if (user) {
+                    user.audio = audio;
+                    user.video = video;
+                }
+                console.log(`[media_state_change] ${senderid} audio: ${audio}, video: ${video}`);
             }
             
             // Broadcast the media state change to all users in the room
             socket.broadcast.to(roomId).emit("media_state_change", {
-                userId,
+                sender: senderid,
                 audio,
                 video
             });
@@ -150,7 +154,7 @@ io.on("connection", socket => {
         const roomId = socketToRoom[socket.id];
         if (roomId && target) {
             // Forward the request to the target user
-            socket.to(target).emit("media_state_request", { sender: socket.id });
+            socket.to(target).emit("media_state_request", { requesterid: socket.id });
         }
     });
 });
