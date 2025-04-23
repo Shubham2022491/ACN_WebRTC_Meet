@@ -67,3 +67,31 @@ export const formatTimestamp = (isoString) => {
 export const generateUserId = () => {
     return 'user_' + Math.random().toString(36).substr(2, 9);
 }; 
+
+/**
+ * Function to get a meeting summary from the server
+ * @param {string} prompt - The custom prompt to summarize the meeting (e.g., "What decisions were made?")
+ * @returns {Promise} - Promise containing the summary response
+ */
+export const getMeetingSummary = async (prompt = "What has happened in the meeting so far?") => {
+    try {
+        const response = await fetch(`${SPEECH_SERVER_URL}/summarize`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to get meeting summary');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error getting meeting summary:', error);
+        throw error;
+    }
+};

@@ -1,7 +1,7 @@
 import React from 'react'
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { sendSpeechText, getUserMessages, getAllMessages, formatTimestamp } from './speechApi';
+import { getMeetingSummary, sendSpeechText, getUserMessages, getAllMessages, formatTimestamp } from './speechApi';
 
 const ICE_SERVERS = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
@@ -68,6 +68,8 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const chatContainerRef = useRef(null);
+  const [chatMode, setChatMode] = useState('people'); // 'people' or 'ai'
+  const [isLoading, setIsLoading] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const iceCandidateQueueRef = useRef({});
   const [isListening, setIsListening] = useState(false);
@@ -846,17 +848,67 @@ function App() {
     }
   }, [isChatOpen]);
 
-  const sendMessage = () => {
-    if (!newMessage.trim() || !socketRef.current) return;
-
-    const message = {
-      sender: socketRef.current.id,
-      message: newMessage.trim(),
-      senderName: `User-${socketRef.current.id.slice(0, 6)}`,
-    };
-
-    socketRef.current.emit('chat_message', message);
-    setMessages(prev => [...prev, message]);
+  const sendMessage = async () => {
+    if (!newMessage.trim()) return;
+    
+    if (chatMode === 'people') {
+      // Original people chat functionality
+      if (!socketRef.current) return;
+      
+      const message = {
+        sender: socketRef.current.id,
+        message: newMessage.trim(),
+        senderName: `User-${socketRef.current.id.slice(0, 6)}`,
+      };
+      socketRef.current.emit('chat_message', message);
+      setMessages(prev => [...prev, message]);
+    } else {
+      // AI chat functionality
+      const userMessage = {
+        sender: 'user',
+        message: newMessage.trim(),
+        senderName: `User-${socketRef.current.id.slice(0, 6)}`,
+      };
+      
+      setMessages(prev => [...prev, userMessage]);
+      
+      // Set loading state (optional)
+      setIsLoading(true);
+      
+      try {
+        // Call the API to get meeting summary
+        const response = await getMeetingSummary(newMessage.trim());
+        
+        // Create AI response message with summary from API
+        const aiResponse = {
+          sender: 'ai',
+          message: response.summary,
+          senderName: 'AI Assistant',
+        };
+        
+        setMessages(prev => [...prev, aiResponse]);
+      } catch (error) {
+        console.error("Error getting AI response:", error);
+        
+        // Show error message in chat
+        const errorMessage = {
+          sender: 'ai',
+          message: "Sorry, I couldn't process your request. Please try again.",
+          senderName: 'AI Assistant',
+        };
+        
+        setMessages(prev => [...prev, errorMessage]);
+      } finally {
+        // Reset loading state
+        setIsLoading(false);
+        
+        // Scroll to bottom after receiving AI response
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      }
+    }
+    
     setNewMessage('');
     
     // Scroll to bottom after sending
@@ -869,6 +921,11 @@ function App() {
     if (e.key === 'Enter') {
       sendMessage();
     }
+  };
+
+  const toggleChatMode = () => {
+    setChatMode(prev => prev === 'people' ? 'ai' : 'people');
+    setMessages([]); // Clear messages when switching modes
   };
 
   const handleSpeechEnd = async () => {
@@ -1040,6 +1097,46 @@ function App() {
             ×
           </button>
         </div>
+        
+        {/* Toggle buttons for chat mode */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          padding: '8px',
+          borderBottom: '1px solid #3c4043',
+        }}>
+          <button 
+            style={{
+              padding: '8px 16px',
+              border: 'none',
+              borderRadius: '20px',
+              cursor: 'pointer',
+              margin: '0 5px',
+              backgroundColor: chatMode === 'people' ? '#8ab4f8' : '#3c4043',
+              color: chatMode === 'people' ? 'black' : 'white',
+              fontWeight: '500',
+            }}
+            onClick={() => chatMode !== 'people' && toggleChatMode()}
+          >
+            Chat with People
+          </button>
+          <button 
+            style={{
+              padding: '8px 16px',
+              border: 'none',
+              borderRadius: '20px',
+              cursor: 'pointer',
+              margin: '0 5px',
+              backgroundColor: chatMode === 'ai' ? '#8ab4f8' : '#3c4043',
+              color: chatMode === 'ai' ? 'black' : 'white',
+              fontWeight: '500',
+            }}
+            onClick={() => chatMode !== 'ai' && toggleChatMode()}
+          >
+            Chat with AI
+          </button>
+        </div>
+        
         <div 
           style={styles.messagesContainer}
           ref={chatContainerRef}
@@ -1049,7 +1146,9 @@ function App() {
               key={index}
               style={{
                 ...styles.message,
-                ...(msg.sender === socketRef.current?.id ? styles.ownMessage : styles.otherMessage)
+                ...(msg.sender === socketRef.current?.id || msg.sender === 'user' 
+                  ? styles.ownMessage 
+                  : styles.otherMessage)
               }}
             >
               <div style={styles.messageSender}>
@@ -1059,13 +1158,14 @@ function App() {
             </div>
           ))}
         </div>
+        
         <div style={styles.messageInputContainer}>
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
+            placeholder={`Type a message to ${chatMode === 'ai' ? 'AI' : 'people'}...`}
             style={styles.messageInput}
           />
           <button 
