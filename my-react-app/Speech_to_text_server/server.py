@@ -6,6 +6,8 @@ import os
 # from openai import OpenAI
 # from google import genai
 import google.generativeai as genai
+import threading
+import time
 
 
 
@@ -156,5 +158,20 @@ def summarize_meeting():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+def clear_messages_periodically():
+    # print("before clearing : ",messages)
+    while True:
+        # print("before clearing : ",messages)
+        time.sleep(600)  # Wait for 10 minutes (600 seconds)
+        print("Clearing messages dictionary...")
+        messages.clear()
+        print("messages: ",messages)
+
 if __name__ == '__main__':
+
+     # Start the background thread for clearing messages
+    clearing_thread = threading.Thread(target=clear_messages_periodically)
+    clearing_thread.daemon = True  # Daemon thread will close with the main app
+    clearing_thread.start()
     app.run(host='0.0.0.0', port=5000, debug=True) 
